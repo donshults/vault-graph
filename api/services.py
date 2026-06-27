@@ -424,7 +424,12 @@ class GraphService:
         workspace_ids: List[UUID],
         build_id: UUID
     ) -> int:
-        """Compute edges based on tag Jaccard similarity."""
+        """Compute edges based on tag Jaccard similarity.
+
+        Optimized using inverted index - only compares nodes that share tags.
+        """
+        from collections import defaultdict
+
         # Get all nodes with tags
         result = await db.execute(
             text("""
@@ -438,53 +443,101 @@ class GraphService:
         )
         nodes = result.fetchall()
 
+        if not nodes:
+            return 0
+
+        logger.info(f"Computing tag edges for {len(nodes)} nodes with tags")
+
+        # Build node lookup and tag sets
+        node_data = {}  # node_id -> (node_type, workspace_id, tags_set)
+        for node in nodes:
+            node_data[node.node_id] = (
+                node.node_type,
+                node.workspace_id,
+                set(node.tags or [])
+            )
+
+        # Build inverted index: tag -> set of node_ids (per workspace)
+        # Key: (workspace_id, tag) -> set of node_ids
+        tag_index = defaultdict(set)
+        for node in nodes:
+            workspace_id = node.workspace_id
+            for tag in (node.tags or []):
+                tag_index[(workspace_id, tag)].add(node.node_id)
+
+        # Find candidate pairs (nodes that share at least one tag)
+        candidate_pairs = set()
+        for (workspace_id, tag), node_ids in tag_index.items():
+            node_list = list(node_ids)
+            for i, id1 in enumerate(node_list):
+                for id2 in node_list[i + 1:]:
+                    # Use sorted tuple to avoid duplicates
+                    pair = (min(id1, id2), max(id1, id2))
+                    candidate_pairs.add(pair)
+
+        logger.info(f"Found {len(candidate_pairs)} candidate pairs to evaluate")
+
         edges_created = 0
         threshold = settings.edge_jaccard_threshold
+        edge_batch = []
+        batch_size = 1000
 
-        for i, node1 in enumerate(nodes):
-            tags1 = set(node1.tags or [])
-            if not tags1:
+        for id1, id2 in candidate_pairs:
+            type1, ws1, tags1 = node_data[id1]
+            type2, ws2, tags2 = node_data[id2]
+
+            # Should already be same workspace, but verify
+            if ws1 != ws2:
                 continue
 
-            for node2 in nodes[i + 1:]:
-                # Only create edges within same workspace
-                if node1.workspace_id != node2.workspace_id:
-                    continue
+            # Jaccard similarity
+            intersection = len(tags1 & tags2)
+            union = len(tags1 | tags2)
+            if union == 0:
+                continue
 
-                tags2 = set(node2.tags or [])
-                if not tags2:
-                    continue
+            similarity = intersection / union
+            if similarity >= threshold:
+                edge_batch.append({
+                    "source_id": id1,
+                    "source_type": type1,
+                    "target_id": id2,
+                    "target_type": type2,
+                    "weight": similarity,
+                    "workspace_id": ws1,
+                    "build_id": build_id
+                })
+                edges_created += 1
 
-                # Jaccard similarity
-                intersection = len(tags1 & tags2)
-                union = len(tags1 | tags2)
-                if union == 0:
-                    continue
+                # Batch insert
+                if len(edge_batch) >= batch_size:
+                    await self._insert_edge_batch(db, edge_batch)
+                    edge_batch = []
 
-                similarity = intersection / union
-                if similarity >= threshold:
-                    await db.execute(
-                        text("""
-                            INSERT INTO vault_graph.graph_edges
-                            (source_id, source_type, target_id, target_type,
-                             edge_type, weight, workspace_id, build_id)
-                            VALUES (:source_id, :source_type, :target_id, :target_type,
-                                    'tag', :weight, :workspace_id, :build_id)
-                        """),
-                        {
-                            "source_id": node1.node_id,
-                            "source_type": node1.node_type,
-                            "target_id": node2.node_id,
-                            "target_type": node2.node_type,
-                            "weight": similarity,
-                            "workspace_id": node1.workspace_id,
-                            "build_id": build_id
-                        }
-                    )
-                    edges_created += 1
+        # Insert remaining edges
+        if edge_batch:
+            await self._insert_edge_batch(db, edge_batch)
 
         await db.commit()
+        logger.info(f"Created {edges_created} tag-based edges")
         return edges_created
+
+    async def _insert_edge_batch(self, db: AsyncSession, edges: List[dict]):
+        """Batch insert edges for better performance."""
+        if not edges:
+            return
+
+        # Use executemany for batch insert
+        await db.execute(
+            text("""
+                INSERT INTO vault_graph.graph_edges
+                (source_id, source_type, target_id, target_type,
+                 edge_type, weight, workspace_id, build_id)
+                VALUES (:source_id, :source_type, :target_id, :target_type,
+                        'tag', :weight, :workspace_id, :build_id)
+            """),
+            edges
+        )
 
     async def _compute_semantic_edges(
         self,
