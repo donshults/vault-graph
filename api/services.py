@@ -204,18 +204,24 @@ class GraphService:
         build_id = build_result.scalar()
         await self.db.commit()
 
+        # Capture owner for the background task
+        owner = self.owner
+
         # Run rebuild in background
-        asyncio.create_task(self._run_rebuild(build_id, workspace_slugs))
+        asyncio.create_task(self._run_rebuild(build_id, workspace_slugs, owner))
 
         return build_id
 
     async def _run_rebuild(
         self,
         build_id: UUID,
-        workspace_slugs: Optional[List[str]] = None
+        workspace_slugs: Optional[List[str]],
+        owner: str
     ):
         """Run the actual rebuild process."""
         from database import async_session
+
+        logger.info(f"Starting rebuild {build_id} for owner {owner}")
 
         async with async_session() as db:
             try:
@@ -234,7 +240,7 @@ class GraphService:
                 if workspace_slugs:
                     result = await db.execute(
                         select(Workspace).where(
-                            Workspace.owner == self.owner,
+                            Workspace.owner == owner,
                             Workspace.slug.in_(workspace_slugs),
                             Workspace.is_active == True
                         )
@@ -242,13 +248,15 @@ class GraphService:
                 else:
                     result = await db.execute(
                         select(Workspace).where(
-                            Workspace.owner == self.owner,
+                            Workspace.owner == owner,
                             Workspace.is_active == True
                         )
                     )
                 workspaces = result.scalars().all()
                 workspace_map = {ws.id: ws.slug for ws in workspaces}
                 workspace_ids = list(workspace_map.keys())
+
+                logger.info(f"Build {build_id}: Processing {len(workspace_ids)} workspaces")
 
                 # Clear old edges and cache for these workspaces
                 await db.execute(
@@ -278,6 +286,7 @@ class GraphService:
                     )
                 )
                 memories = result.scalars().all()
+                logger.info(f"Build {build_id}: Processing {len(memories)} memories")
 
                 for memory in memories:
                     # Cache node
@@ -318,6 +327,7 @@ class GraphService:
                     )
                 )
                 documents = result.scalars().all()
+                logger.info(f"Build {build_id}: Processing {len(documents)} documents")
 
                 for doc in documents:
                     # Get first chunk for preview
@@ -360,6 +370,7 @@ class GraphService:
                     nodes_processed += 1
 
                 await db.commit()
+                logger.info(f"Build {build_id}: Cached {nodes_processed} nodes, computing edges...")
 
                 # Compute tag-based edges (Jaccard similarity)
                 edges_created += await self._compute_tag_edges(db, workspace_ids, build_id)
@@ -391,18 +402,21 @@ class GraphService:
                 logger.info(f"Build {build_id} completed: {nodes_processed} nodes, {edges_created} edges")
 
             except Exception as e:
-                logger.error(f"Build {build_id} failed: {e}")
-                await db.execute(
-                    text("""
-                        UPDATE vault_graph.graph_builds
-                        SET status = 'failed',
-                            completed_at = NOW(),
-                            error_message = :error
-                        WHERE id = :build_id
-                    """),
-                    {"build_id": build_id, "error": str(e)}
-                )
-                await db.commit()
+                logger.error(f"Build {build_id} failed: {e}", exc_info=True)
+                try:
+                    await db.execute(
+                        text("""
+                            UPDATE vault_graph.graph_builds
+                            SET status = 'failed',
+                                completed_at = NOW(),
+                                error_message = :error
+                            WHERE id = :build_id
+                        """),
+                        {"build_id": build_id, "error": str(e)}
+                    )
+                    await db.commit()
+                except Exception as db_err:
+                    logger.error(f"Failed to update build status: {db_err}")
 
     async def _compute_tag_edges(
         self,
