@@ -50,7 +50,7 @@ class Settings(BaseSettings):
 
     # Graph Settings
     edge_similarity_threshold: float = 0.7  # Minimum similarity for semantic edges
-    edge_jaccard_threshold: float = 0.3  # Minimum Jaccard for tag edges
+    edge_jaccard_threshold: float = 0.5  # Minimum Jaccard for tag edges (50% overlap)
     max_knn_edges: int = 5  # Max semantic edges per node
     graph_cache_ttl: int = 300  # Cache TTL in seconds
 
