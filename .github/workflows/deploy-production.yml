@@ -33,7 +33,6 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Notify n8n - Deploy Started
-        if: ${{ secrets.N8N_WEBHOOK_URL != '' }}
         continue-on-error: true
         env:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
@@ -75,7 +74,6 @@ jobs:
         run: sleep 60
 
       - name: Notify n8n - Deploy Success
-        if: ${{ secrets.N8N_WEBHOOK_URL != '' }}
         continue-on-error: true
         env:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
@@ -106,7 +104,7 @@ jobs:
             }"
 
       - name: Notify n8n - Deploy Failed
-        if: ${{ failure() && secrets.N8N_WEBHOOK_URL != '' }}
+        if: failure()
         continue-on-error: true
         env:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
