@@ -412,8 +412,18 @@ async def list_workspaces(
 # =============================================================================
 
 # Mount static files for frontend if dist exists
-frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
-if os.path.exists(frontend_dist):
+# Check multiple possible locations (development vs Docker)
+possible_paths = [
+    os.path.join(os.path.dirname(__file__), "frontend", "dist"),  # Docker: /app/frontend/dist
+    os.path.join(os.path.dirname(__file__), "..", "frontend", "dist"),  # Dev: ../frontend/dist
+]
+frontend_dist = None
+for path in possible_paths:
+    if os.path.exists(path):
+        frontend_dist = path
+        break
+
+if frontend_dist:
     app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
 
     @app.get("/", response_class=FileResponse)
