@@ -278,7 +278,7 @@ class GraphService:
                 nodes_processed = 0
                 edges_created = 0
 
-                # Process memories
+                # Process memories with batch inserts
                 result = await db.execute(
                     select(Memory).where(
                         Memory.workspace_id.in_(workspace_ids),
@@ -288,9 +288,44 @@ class GraphService:
                 memories = result.scalars().all()
                 logger.info(f"Build {build_id}: Processing {len(memories)} memories")
 
+                memory_batch = []
                 for memory in memories:
-                    # Cache node
                     label = (memory.content[:100] + "...") if len(memory.content) > 100 else memory.content
+                    memory_batch.append({
+                        "node_id": memory.id,
+                        "workspace_id": memory.workspace_id,
+                        "workspace_slug": workspace_map.get(memory.workspace_id, "unknown"),
+                        "label": label,
+                        "preview": memory.content[:500],
+                        "tags": memory.tags or [],
+                        "importance": memory.importance,
+                        "memory_type": memory.memory_type,
+                        "created_at": memory.created_at
+                    })
+                    nodes_processed += 1
+
+                    # Batch insert every 500 memories
+                    if len(memory_batch) >= 500:
+                        await db.execute(
+                            text("""
+                                INSERT INTO vault_graph.node_cache
+                                (node_id, node_type, workspace_id, workspace_slug, label,
+                                 content_preview, tags, importance, memory_type, created_at)
+                                VALUES (:node_id, 'memory', :workspace_id, :workspace_slug, :label,
+                                        :preview, :tags, :importance, :memory_type, :created_at)
+                                ON CONFLICT (node_id) DO UPDATE SET
+                                    label = EXCLUDED.label,
+                                    content_preview = EXCLUDED.content_preview,
+                                    tags = EXCLUDED.tags,
+                                    importance = EXCLUDED.importance,
+                                    updated_at = NOW()
+                            """),
+                            memory_batch
+                        )
+                        memory_batch = []
+
+                # Insert remaining memories
+                if memory_batch:
                     await db.execute(
                         text("""
                             INSERT INTO vault_graph.node_cache
@@ -305,21 +340,10 @@ class GraphService:
                                 importance = EXCLUDED.importance,
                                 updated_at = NOW()
                         """),
-                        {
-                            "node_id": memory.id,
-                            "workspace_id": memory.workspace_id,
-                            "workspace_slug": workspace_map.get(memory.workspace_id, "unknown"),
-                            "label": label,
-                            "preview": memory.content[:500],
-                            "tags": memory.tags or [],
-                            "importance": memory.importance,
-                            "memory_type": memory.memory_type,
-                            "created_at": memory.created_at
-                        }
+                        memory_batch
                     )
-                    nodes_processed += 1
 
-                # Process documents
+                # Process documents - fetch all first chunks in one query for efficiency
                 result = await db.execute(
                     select(Document).where(
                         Document.workspace_id.in_(workspace_ids),
@@ -329,17 +353,68 @@ class GraphService:
                 documents = result.scalars().all()
                 logger.info(f"Build {build_id}: Processing {len(documents)} documents")
 
+                # Get all first chunks in a single query using window function
+                first_chunks_result = await db.execute(
+                    text("""
+                        WITH ranked_chunks AS (
+                            SELECT
+                                document_id,
+                                content,
+                                ROW_NUMBER() OVER (PARTITION BY document_id ORDER BY chunk_index) as rn
+                            FROM document_chunks
+                            WHERE document_id = ANY(:doc_ids)
+                              AND is_active = true
+                        )
+                        SELECT document_id, content
+                        FROM ranked_chunks
+                        WHERE rn = 1
+                    """),
+                    {"doc_ids": [doc.id for doc in documents]}
+                )
+                first_chunks = {row.document_id: row.content for row in first_chunks_result.fetchall()}
+
+                # Batch insert documents
+                doc_batch = []
                 for doc in documents:
-                    # Get first chunk for preview
-                    chunk_result = await db.execute(
-                        select(DocumentChunk.content).where(
-                            DocumentChunk.document_id == doc.id,
-                            DocumentChunk.is_active == True
-                        ).order_by(DocumentChunk.chunk_index).limit(1)
-                    )
-                    first_chunk = chunk_result.scalar()
+                    first_chunk = first_chunks.get(doc.id, "")
                     preview = first_chunk[:500] if first_chunk else ""
 
+                    doc_batch.append({
+                        "node_id": doc.id,
+                        "workspace_id": doc.workspace_id,
+                        "workspace_slug": workspace_map.get(doc.workspace_id, "unknown"),
+                        "label": doc.title[:100] if len(doc.title) > 100 else doc.title,
+                        "preview": preview,
+                        "tags": doc.tags or [],
+                        "doc_title": doc.title,
+                        "has_file": bool(doc.r2_key),
+                        "created_at": doc.created_at
+                    })
+                    nodes_processed += 1
+
+                    # Batch insert every 500 documents
+                    if len(doc_batch) >= 500:
+                        await db.execute(
+                            text("""
+                                INSERT INTO vault_graph.node_cache
+                                (node_id, node_type, workspace_id, workspace_slug, label,
+                                 content_preview, tags, document_title, has_file, created_at)
+                                VALUES (:node_id, 'document', :workspace_id, :workspace_slug, :label,
+                                        :preview, :tags, :doc_title, :has_file, :created_at)
+                                ON CONFLICT (node_id) DO UPDATE SET
+                                    label = EXCLUDED.label,
+                                    content_preview = EXCLUDED.content_preview,
+                                    tags = EXCLUDED.tags,
+                                    document_title = EXCLUDED.document_title,
+                                    has_file = EXCLUDED.has_file,
+                                    updated_at = NOW()
+                            """),
+                            doc_batch
+                        )
+                        doc_batch = []
+
+                # Insert remaining documents
+                if doc_batch:
                     await db.execute(
                         text("""
                             INSERT INTO vault_graph.node_cache
@@ -355,19 +430,8 @@ class GraphService:
                                 has_file = EXCLUDED.has_file,
                                 updated_at = NOW()
                         """),
-                        {
-                            "node_id": doc.id,
-                            "workspace_id": doc.workspace_id,
-                            "workspace_slug": workspace_map.get(doc.workspace_id, "unknown"),
-                            "label": doc.title[:100] if len(doc.title) > 100 else doc.title,
-                            "preview": preview,
-                            "tags": doc.tags or [],
-                            "doc_title": doc.title,
-                            "has_file": bool(doc.r2_key),
-                            "created_at": doc.created_at
-                        }
+                        doc_batch
                     )
-                    nodes_processed += 1
 
                 await db.commit()
                 logger.info(f"Build {build_id}: Cached {nodes_processed} nodes, computing edges...")
