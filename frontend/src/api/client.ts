@@ -23,9 +23,8 @@ async function fetchApi<T>(
 ): Promise<T> {
   const apiKey = getApiKey();
 
-  const headers: HeadersInit = {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...options.headers,
   };
 
   if (apiKey) {

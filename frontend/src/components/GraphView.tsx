@@ -1,10 +1,9 @@
 // Main graph visualization component using Sigma.js
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Graph from 'graphology';
 import Sigma from 'sigma';
 import FA2Layout from 'graphology-layout-forceatlas2/worker';
-import type { NodeDetail, SearchResult } from '../types';
 
 interface GraphViewProps {
   graph: Graph | null;

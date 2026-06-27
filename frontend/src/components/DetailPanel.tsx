@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { getNode } from '../api/client';
-import type { NodeDetail, RelatedNode } from '../types';
+import type { NodeDetail } from '../types';
 
 interface DetailPanelProps {
   nodeId: string | null;
