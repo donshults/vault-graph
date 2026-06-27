@@ -1,0 +1,132 @@
+name: Deploy to Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "deploy" to confirm production deployment'
+        required: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate confirmation
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "deploy" ]; then
+            echo "Deployment not confirmed. Please type 'deploy' to proceed."
+            exit 1
+          fi
+
+  deploy:
+    needs: validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Notify n8n - Deploy Started
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          ESCAPED_MSG=$(echo "$COMMIT_MSG" | head -1 | tr -d '\n\r' | sed 's/"/\\"/g')
+          curl -s -X POST ${{ secrets.N8N_WEBHOOK_URL }} \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"event_type\": \"deploy\",
+              \"status\": \"started\",
+              \"project\": {
+                \"id\": \"vault-graph\",
+                \"name\": \"Vault Graph\"
+              },
+              \"environment\": \"production\",
+              \"actor\": {
+                \"github_username\": \"${{ github.actor }}\"
+              },
+              \"commit\": {
+                \"sha\": \"${{ github.sha }}\",
+                \"message\": \"${ESCAPED_MSG}\",
+                \"url\": \"${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}\"
+              },
+              \"pipeline\": {
+                \"id\": \"${{ github.run_id }}\",
+                \"url\": \"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"
+              }
+            }"
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy to production
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: railway up --service vault-graph --environment production --detach
+
+      - name: Wait for deployment
+        run: sleep 60
+
+      - name: Notify n8n - Deploy Success
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          ESCAPED_MSG=$(echo "$COMMIT_MSG" | head -1 | tr -d '\n\r' | sed 's/"/\\"/g')
+          curl -s -X POST ${{ secrets.N8N_WEBHOOK_URL }} \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"event_type\": \"deploy\",
+              \"status\": \"success\",
+              \"project\": {
+                \"id\": \"vault-graph\",
+                \"name\": \"Vault Graph\"
+              },
+              \"environment\": \"production\",
+              \"actor\": {
+                \"github_username\": \"${{ github.actor }}\"
+              },
+              \"commit\": {
+                \"sha\": \"${{ github.sha }}\",
+                \"message\": \"${ESCAPED_MSG}\",
+                \"url\": \"${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}\"
+              },
+              \"pipeline\": {
+                \"id\": \"${{ github.run_id }}\",
+                \"url\": \"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"
+              }
+            }"
+
+      - name: Notify n8n - Deploy Failed
+        if: failure()
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          ESCAPED_MSG=$(echo "$COMMIT_MSG" | head -1 | tr -d '\n\r' | sed 's/"/\\"/g')
+          curl -s -X POST ${{ secrets.N8N_WEBHOOK_URL }} \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"event_type\": \"deploy\",
+              \"status\": \"failed\",
+              \"project\": {
+                \"id\": \"vault-graph\",
+                \"name\": \"Vault Graph\"
+              },
+              \"environment\": \"production\",
+              \"actor\": {
+                \"github_username\": \"${{ github.actor }}\"
+              },
+              \"commit\": {
+                \"sha\": \"${{ github.sha }}\",
+                \"message\": \"${ESCAPED_MSG}\",
+                \"url\": \"${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}\"
+              },
+              \"pipeline\": {
+                \"id\": \"${{ github.run_id }}\",
+                \"url\": \"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"
+              }
+            }"
