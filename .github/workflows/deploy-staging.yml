@@ -28,6 +28,8 @@ jobs:
         run: pip install -r api/requirements.txt
 
       - name: Notify n8n - Deploy Started
+        if: ${{ secrets.N8N_WEBHOOK_URL != '' }}
+        continue-on-error: true
         env:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
@@ -68,6 +70,8 @@ jobs:
         run: sleep 45
 
       - name: Notify n8n - Deploy Success
+        if: ${{ secrets.N8N_WEBHOOK_URL != '' }}
+        continue-on-error: true
         env:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
@@ -97,7 +101,8 @@ jobs:
             }"
 
       - name: Notify n8n - Deploy Failed
-        if: failure()
+        if: ${{ failure() && secrets.N8N_WEBHOOK_URL != '' }}
+        continue-on-error: true
         env:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
