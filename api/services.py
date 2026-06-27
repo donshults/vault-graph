@@ -427,8 +427,12 @@ class GraphService:
         """Compute edges based on tag Jaccard similarity.
 
         Optimized using inverted index - only compares nodes that share tags.
+        Limits edges per node to max_knn_edges (default 5) to prevent graph explosion.
         """
         from collections import defaultdict
+        import heapq
+
+        max_edges_per_node = settings.max_knn_edges  # Reuse kNN setting for consistency
 
         # Get all nodes with tags
         result = await db.execute(
@@ -446,7 +450,7 @@ class GraphService:
         if not nodes:
             return 0
 
-        logger.info(f"Computing tag edges for {len(nodes)} nodes with tags")
+        logger.info(f"Computing tag edges for {len(nodes)} nodes with tags (max {max_edges_per_node} per node)")
 
         # Build node lookup and tag sets
         node_data = {}  # node_id -> (node_type, workspace_id, tags_set)
@@ -477,10 +481,11 @@ class GraphService:
 
         logger.info(f"Found {len(candidate_pairs)} candidate pairs to evaluate")
 
-        edges_created = 0
         threshold = settings.edge_jaccard_threshold
-        edge_batch = []
-        batch_size = 1000
+
+        # Collect all valid edges with similarity scores
+        # node_edges[node_id] = list of (similarity, edge_data)
+        node_edges = defaultdict(list)
 
         for id1, id2 in candidate_pairs:
             type1, ws1, tags1 = node_data[id1]
@@ -498,7 +503,7 @@ class GraphService:
 
             similarity = intersection / union
             if similarity >= threshold:
-                edge_batch.append({
+                edge_data = {
                     "source_id": id1,
                     "source_type": type1,
                     "target_id": id2,
@@ -506,20 +511,52 @@ class GraphService:
                     "weight": similarity,
                     "workspace_id": ws1,
                     "build_id": build_id
-                })
-                edges_created += 1
+                }
+                # Track for both nodes (undirected edge)
+                node_edges[id1].append((similarity, id2, edge_data))
+                node_edges[id2].append((similarity, id1, edge_data))
 
-                # Batch insert
-                if len(edge_batch) >= batch_size:
-                    await self._insert_edge_batch(db, edge_batch)
-                    edge_batch = []
+        logger.info(f"Found {sum(len(e) for e in node_edges.values()) // 2} edges above threshold, pruning to top {max_edges_per_node} per node")
 
-        # Insert remaining edges
-        if edge_batch:
-            await self._insert_edge_batch(db, edge_batch)
+        # Keep only top N edges per node
+        final_edges = set()  # Use frozenset of (id1, id2) to dedupe
+        for node_id, edges in node_edges.items():
+            # Sort by similarity descending, take top N
+            top_edges = heapq.nlargest(max_edges_per_node, edges, key=lambda x: x[0])
+            for similarity, other_id, edge_data in top_edges:
+                # Create canonical pair key for deduplication
+                pair_key = (min(edge_data["source_id"], edge_data["target_id"]),
+                           max(edge_data["source_id"], edge_data["target_id"]))
+                if pair_key not in final_edges:
+                    final_edges.add(pair_key)
+
+        # Build final edge list from deduplicated pairs
+        edge_batch = []
+        for id1, id2 in final_edges:
+            type1, ws1, tags1 = node_data[id1]
+            type2, ws2, tags2 = node_data[id2]
+            intersection = len(tags1 & tags2)
+            union = len(tags1 | tags2)
+            similarity = intersection / union
+
+            edge_batch.append({
+                "source_id": id1,
+                "source_type": type1,
+                "target_id": id2,
+                "target_type": type2,
+                "weight": similarity,
+                "workspace_id": ws1,
+                "build_id": build_id
+            })
+
+        # Batch insert
+        edges_created = len(edge_batch)
+        batch_size = 1000
+        for i in range(0, len(edge_batch), batch_size):
+            await self._insert_edge_batch(db, edge_batch[i:i + batch_size])
 
         await db.commit()
-        logger.info(f"Created {edges_created} tag-based edges")
+        logger.info(f"Created {edges_created} tag-based edges (pruned from {sum(len(e) for e in node_edges.values()) // 2})")
         return edges_created
 
     async def _insert_edge_batch(self, db: AsyncSession, edges: List[dict]):
