@@ -510,10 +510,22 @@ for path in possible_paths:
 if frontend_dist:
     app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
 
+    # index.html must never be cached: it references content-hashed asset files,
+    # so a stale index keeps pointing browsers at old bundles after a deploy
+    # (the source of the "I still see the old UI" problem). The /assets/* files
+    # are content-hashed and safe to cache long-term (handled by the mount above).
+    _NO_CACHE_HEADERS = {"Cache-Control": "no-cache, no-store, must-revalidate"}
+
+    def _index_response() -> FileResponse:
+        return FileResponse(
+            os.path.join(frontend_dist, "index.html"),
+            headers=_NO_CACHE_HEADERS,
+        )
+
     @app.get("/", response_class=FileResponse)
     async def serve_frontend():
         """Serve the frontend SPA."""
-        return FileResponse(os.path.join(frontend_dist, "index.html"))
+        return _index_response()
 
     @app.get("/{path:path}")
     async def serve_frontend_routes(path: str):
@@ -522,10 +534,10 @@ if frontend_dist:
         if path.startswith("api/"):
             raise HTTPException(status_code=404, detail="Not found")
 
-        # Check if file exists in dist
+        # Check if file exists in dist (hashed assets, favicon, etc.)
         file_path = os.path.join(frontend_dist, path)
         if os.path.exists(file_path) and os.path.isfile(file_path):
             return FileResponse(file_path)
 
-        # Default to index.html for SPA routing
-        return FileResponse(os.path.join(frontend_dist, "index.html"))
+        # Default to index.html for SPA routing (never cached)
+        return _index_response()
