@@ -8,7 +8,7 @@ import { SearchBar } from './components/SearchBar';
 import { FilterPanel } from './components/FilterPanel';
 import { StatsBar } from './components/StatsBar';
 import { Legend } from './components/Legend';
-import { WorkspaceIndicator } from './components/WorkspaceIndicator';
+import { ActiveFilters } from './components/ActiveFilters';
 import { FolderSidebar } from './components/FolderSidebar';
 import { AuthModal } from './components/AuthModal';
 import { hasApiKey, triggerRebuild } from './api/client';
@@ -146,30 +146,31 @@ function App() {
         onSelectNode={handleNodeClick}
       />
 
-      {/* Main graph area (graph fills the space above a fixed footer) */}
+      {/* Main graph area (top bar + graph + footer, stacked) */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Graph + floating overlays */}
-        <div className="flex-1 relative min-h-0">
-          {/* Search */}
+        {/* Top bar: search on the left, filters on the right */}
+        <header className="flex items-center gap-4 px-4 py-3 border-b border-gray-800 bg-gray-900">
           <SearchBar
             onResultClick={handleNodeClick}
             onSearchResults={handleSearchResults}
           />
+          <div className="ml-auto">
+            <FilterPanel
+              filters={filters}
+              onFiltersChange={setFilters}
+              workspaces={workspaces}
+              onRebuild={handleRebuild}
+            />
+          </div>
+        </header>
 
-          {/* Active workspace indicator */}
-          <WorkspaceIndicator
-            selected={filters.workspaces}
-            workspaces={workspaces}
-          />
+        {/* Active-filter chip row: shows exactly what the graph is scoped to */}
+        <div className="flex items-center px-4 py-2 border-b border-gray-800 bg-gray-900/60">
+          <ActiveFilters filters={filters} workspaces={workspaces} onChange={setFilters} />
+        </div>
 
-          {/* Filters */}
-          <FilterPanel
-            filters={filters}
-            onFiltersChange={setFilters}
-            workspaces={workspaces}
-            onRebuild={handleRebuild}
-          />
-
+        {/* Graph + transient banners */}
+        <div className="flex-1 relative min-h-0">
           {/* Rebuild status */}
           {rebuildStatus && (
             <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 bg-violet-900/90 text-violet-100 px-4 py-2 rounded-lg text-sm flex items-center gap-2">

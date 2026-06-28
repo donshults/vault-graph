@@ -84,7 +84,7 @@ body {
 
 /* Search bar */
 .search-bar {
-  @apply absolute top-4 left-4 z-10 w-96;
+  @apply relative z-10 w-full max-w-xl;
 }
 
 .search-input {

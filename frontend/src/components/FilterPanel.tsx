@@ -45,7 +45,7 @@ export function FilterPanel({
   };
 
   return (
-    <div className="absolute top-4 right-4 z-10">
+    <div className="relative z-20 flex-shrink-0">
       {/* Toggle button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
@@ -69,7 +69,7 @@ export function FilterPanel({
 
       {/* Filter panel */}
       {isOpen && (
-        <div className="filter-panel mt-2">
+        <div className="filter-panel absolute right-0 mt-2">
           {/* Workspaces */}
           <div className="mb-4">
             <h4 className="text-sm font-medium text-gray-400 mb-2">Workspace</h4>
