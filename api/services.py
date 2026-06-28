@@ -27,6 +27,34 @@ from storage import get_storage
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
+# Strong references to in-flight rebuild tasks. asyncio only keeps a *weak*
+# reference to tasks created with create_task(), so a fire-and-forget task can be
+# garbage-collected mid-run — which silently kills the rebuild (build stuck in
+# 'running' at 0 nodes, no exception). Holding the task here until it finishes
+# prevents that. See https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task
+_rebuild_tasks: set = set()
+
+
+async def _fail_build_if_unfinished(build_id, reason: str) -> None:
+    """Mark a build failed if it's still pending/running (i.e. its task died
+    without finishing). No-op for builds that already reached a terminal state."""
+    from database import async_session
+    try:
+        async with async_session() as db:
+            await db.execute(
+                text("""
+                    UPDATE vault_graph.graph_builds
+                    SET status = 'failed',
+                        completed_at = NOW(),
+                        error_message = COALESCE(error_message, :reason)
+                    WHERE id = :build_id AND status IN ('pending', 'running')
+                """),
+                {"build_id": build_id, "reason": f"Rebuild task ended abnormally: {reason}"[:500]}
+            )
+            await db.commit()
+    except Exception as e:
+        logger.error(f"Failed to mark build {build_id} failed: {e}")
+
 
 # =============================================================================
 # Embeddings
@@ -223,14 +251,30 @@ class GraphService:
         st = similarity_threshold if similarity_threshold is not None else settings.edge_similarity_threshold
         me = max_edges_per_node if max_edges_per_node is not None else settings.max_knn_edges
 
-        # Run rebuild in background
-        asyncio.create_task(self._run_rebuild(
+        # Run rebuild in background. Keep a strong reference until the task
+        # finishes, otherwise asyncio may garbage-collect it mid-run (see
+        # _rebuild_tasks above). On completion, fail the build if the task ended
+        # without reaching a terminal state (e.g. killed/cancelled mid-run).
+        task = asyncio.create_task(self._run_rebuild(
             build_id, workspace_slugs, owner,
             jaccard_threshold=jt,
             similarity_threshold=st,
             max_edges_per_node=me,
             skip_semantic_edges=skip_semantic_edges
         ))
+        _rebuild_tasks.add(task)
+
+        def _on_done(t: "asyncio.Task") -> None:
+            _rebuild_tasks.discard(t)
+            try:
+                exc = t.exception()
+            except asyncio.CancelledError:
+                exc = RuntimeError("rebuild task was cancelled")
+            if exc is not None:
+                logger.error(f"Rebuild task {build_id} ended abnormally: {exc!r}")
+                asyncio.create_task(_fail_build_if_unfinished(build_id, str(exc)))
+
+        task.add_done_callback(_on_done)
 
         return build_id
 
