@@ -125,8 +125,8 @@ POST /api/rebuild
 
 ### Infrastructure
 - `Dockerfile` - Multi-stage build (frontend + backend)
-- `.github/workflows/deploy-staging.yml` - Auto-deploy on push
-- `.github/workflows/deploy-production.yml` - Manual deploy
+- `.github/workflows/deploy.yml` - Auto-deploy production on push to main
+- `.github/workflows/deploy-production.yml` - Manual production deploy (fallback)
 
 ## Database Schema (vault_graph)
 

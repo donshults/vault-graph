@@ -1,4 +1,4 @@
-name: Deploy to Staging
+name: Deploy to Production
 
 on:
   push:
@@ -42,7 +42,7 @@ jobs:
                 \"id\": \"vault-graph\",
                 \"name\": \"Vault Graph\"
               },
-              \"environment\": \"staging\",
+              \"environment\": \"production\",
               \"actor\": {
                 \"github_username\": \"${{ github.actor }}\"
               },
@@ -60,10 +60,10 @@ jobs:
       - name: Install Railway CLI
         run: npm install -g @railway/cli
 
-      - name: Deploy to staging
+      - name: Deploy to production
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: railway up --service vault-graph --environment staging --detach
+        run: railway up --service vault-graph --environment production --detach
 
       - name: Wait for deployment
         run: sleep 45
@@ -83,7 +83,7 @@ jobs:
                 \"id\": \"vault-graph\",
                 \"name\": \"Vault Graph\"
               },
-              \"environment\": \"staging\",
+              \"environment\": \"production\",
               \"actor\": {
                 \"github_username\": \"${{ github.actor }}\"
               },
@@ -114,7 +114,7 @@ jobs:
                 \"id\": \"vault-graph\",
                 \"name\": \"Vault Graph\"
               },
-              \"environment\": \"staging\",
+              \"environment\": \"production\",
               \"actor\": {
                 \"github_username\": \"${{ github.actor }}\"
               },
