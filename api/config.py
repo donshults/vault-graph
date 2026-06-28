@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     edge_jaccard_threshold: float = 0.5  # Minimum Jaccard for tag edges (50% overlap)
     max_knn_edges: int = 5  # Max semantic edges per node
     graph_cache_ttl: int = 300  # Cache TTL in seconds
+    build_stale_seconds: int = 600  # Mark a still-running build failed after this many seconds
 
     # Search defaults (matches Context Vault)
     default_search_limit: int = 10

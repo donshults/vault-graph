@@ -54,8 +54,14 @@ function App() {
       console.log('Rebuild response:', response);
       setRebuildStatus(`Rebuild started: ${response.build_id.slice(0, 8)}...`);
 
-      // Poll for completion
+      // Poll for completion, but give up after a bounded number of attempts so a
+      // build that dies without reporting 'completed'/'failed' (e.g. its in-process
+      // task was killed by a restart) doesn't leave the banner spinning forever.
+      const POLL_INTERVAL_MS = 2000;
+      const MAX_POLL_ATTEMPTS = 150; // ~5 minutes at 2s
+      let attempts = 0;
       const pollInterval = setInterval(async () => {
+        attempts += 1;
         try {
           const { getRebuildStatus } = await import('./api/client');
           const status = await getRebuildStatus(response.build_id);
@@ -81,13 +87,18 @@ function App() {
               setRebuildStatus(`Failed: ${status.error_message || 'Unknown error'}`);
               setTimeout(() => setRebuildStatus(null), 5000);
             }
+          } else if (attempts >= MAX_POLL_ATTEMPTS) {
+            // Timed out waiting; stop polling so the banner clears.
+            clearInterval(pollInterval);
+            setRebuildStatus('Rebuild timed out — stopped tracking. Try refreshing.');
+            setTimeout(() => setRebuildStatus(null), 5000);
           }
         } catch (pollErr) {
           console.error('Poll error:', pollErr);
           clearInterval(pollInterval);
           setRebuildStatus(null);
         }
-      }, 2000);
+      }, POLL_INTERVAL_MS);
     } catch (err) {
       console.error('Rebuild error:', err);
       setRebuildStatus(`Error: ${err instanceof Error ? err.message : 'Unknown'}`);

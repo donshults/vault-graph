@@ -114,6 +114,23 @@ async def lifespan(app: FastAPI):
         await conn.execute(text("""
             CREATE INDEX IF NOT EXISTS ix_node_cache_workspace ON vault_graph.node_cache(workspace_id)
         """))
+
+        # Reap orphaned builds. Rebuilds run as an in-process asyncio task, so a
+        # build left in 'running' or 'pending' across a process restart can never
+        # finish — its task died with the previous process. Mark them failed so
+        # clients stop polling them forever.
+        reaped = await conn.execute(text("""
+            UPDATE vault_graph.graph_builds
+            SET status = 'failed',
+                completed_at = NOW(),
+                error_message = COALESCE(error_message,
+                    'Build orphaned by process restart (reaped on startup)')
+            WHERE status IN ('pending', 'running')
+            RETURNING id
+        """))
+        reaped_count = len(reaped.fetchall())
+        if reaped_count:
+            logger.warning(f"Reaped {reaped_count} orphaned build(s) on startup")
     logger.info("Database schema initialized")
     yield
     logger.info("Vault Graph API shutting down...")
@@ -346,6 +363,32 @@ async def get_rebuild_status(
     build = result.scalar_one_or_none()
     if not build:
         raise HTTPException(status_code=404, detail="Build not found")
+
+    # Staleness guard: a build still 'running' long past any plausible duration
+    # has a dead task (silently killed without updating the row). Mark it failed
+    # so the client stops polling instead of spinning forever.
+    if build.status in ("pending", "running") and build.started_at:
+        started = build.started_at
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        age_seconds = (datetime.now(timezone.utc) - started).total_seconds()
+        if age_seconds > settings.build_stale_seconds:
+            await db.execute(
+                text("""
+                    UPDATE vault_graph.graph_builds
+                    SET status = 'failed',
+                        completed_at = NOW(),
+                        error_message = COALESCE(error_message,
+                            'Build timed out (no progress past stale threshold; task likely died)')
+                    WHERE id = :build_id AND status IN ('pending', 'running')
+                """),
+                {"build_id": build_id}
+            )
+            await db.commit()
+            build.status = "failed"
+            build.error_message = build.error_message or (
+                "Build timed out (no progress past stale threshold; task likely died)"
+            )
 
     return RebuildStatusResponse(
         build_id=str(build.id),
