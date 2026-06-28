@@ -8,6 +8,8 @@ import type {
   HealthResponse,
   RebuildResponse,
   RebuildStatusResponse,
+  FolderTreeResponse,
+  FolderLeavesResponse,
 } from '../types';
 
 const API_BASE = '/api';
@@ -110,6 +112,34 @@ export async function search(
 // Workspace API
 export async function getWorkspaces(): Promise<WorkspaceListResponse> {
   return fetchApi<WorkspaceListResponse>('/workspaces');
+}
+
+// Folder API (tag-derived tree)
+export async function getFolders(
+  workspaces?: string[]
+): Promise<FolderTreeResponse> {
+  const params = new URLSearchParams();
+  if (workspaces?.length) {
+    params.set('workspaces', workspaces.join(','));
+  }
+  const query = params.toString();
+  return fetchApi<FolderTreeResponse>(`/folders${query ? `?${query}` : ''}`);
+}
+
+export async function getFolderLeaves(
+  tag: string,
+  workspaces?: string[],
+  limit?: number
+): Promise<FolderLeavesResponse> {
+  const params = new URLSearchParams();
+  params.set('tag', tag);
+  if (workspaces?.length) {
+    params.set('workspaces', workspaces.join(','));
+  }
+  if (limit !== undefined) {
+    params.set('limit', limit.toString());
+  }
+  return fetchApi<FolderLeavesResponse>(`/folders/leaves?${params.toString()}`);
 }
 
 // Rebuild API

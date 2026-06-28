@@ -28,9 +28,10 @@ from schemas import (
     NodeDetailResponse, RelatedNode,
     SearchResponse, SearchResult,
     RebuildRequest, RebuildResponse, RebuildStatusResponse,
-    WorkspaceListResponse, WorkspaceSummary
+    WorkspaceListResponse, WorkspaceSummary,
+    FolderTreeResponse, FolderLeavesResponse
 )
-from services import GraphService, SearchService, NodeService
+from services import GraphService, SearchService, NodeService, FolderService
 from storage import get_storage
 
 
@@ -453,6 +454,40 @@ async def list_workspaces(
     return WorkspaceListResponse(
         workspaces=summaries,
         total=len(summaries)
+    )
+
+
+# =============================================================================
+# Folder API (tag-derived, Obsidian-style)
+# =============================================================================
+
+@app.get("/api/folders", response_model=FolderTreeResponse, tags=["Folders"])
+async def get_folders(
+    workspaces: Optional[str] = Query(None, description="Comma-separated workspace slugs"),
+    db: AsyncSession = Depends(get_db),
+    owner: str = Depends(get_owner),
+    _auth: bool = Depends(verify_api_key)
+):
+    """Get the tag-derived folder tree for the active workspace(s)."""
+    workspace_list = workspaces.split(",") if workspaces else None
+    folder_service = FolderService(db, owner)
+    return await folder_service.get_folder_tree(workspaces=workspace_list)
+
+
+@app.get("/api/folders/leaves", response_model=FolderLeavesResponse, tags=["Folders"])
+async def get_folder_leaves(
+    tag: str = Query(..., min_length=1, description="Tag whose nodes to list"),
+    workspaces: Optional[str] = Query(None, description="Comma-separated workspace slugs"),
+    limit: int = Query(200, ge=1, le=1000),
+    db: AsyncSession = Depends(get_db),
+    owner: str = Depends(get_owner),
+    _auth: bool = Depends(verify_api_key)
+):
+    """List documents/memories carrying a given tag (lazy tree leaves)."""
+    workspace_list = workspaces.split(",") if workspaces else None
+    folder_service = FolderService(db, owner)
+    return await folder_service.get_folder_leaves(
+        tag=tag, workspaces=workspace_list, limit=limit
     )
 
 

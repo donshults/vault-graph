@@ -233,3 +233,38 @@ class WorkspaceListResponse(BaseModel):
     """List of workspaces."""
     workspaces: List[WorkspaceSummary]
     total: int
+
+
+# =============================================================================
+# Folder Tree (tag-derived, Obsidian-style)
+# =============================================================================
+
+class FolderNode(BaseModel):
+    """A node in the tag-folder tree.
+
+    Two kinds:
+    - Namespace folder: derived from a tag prefix before ':' (e.g. 'project').
+      `full_tag` is null; `children` holds the tag-level nodes under it.
+    - Tag leaf-folder: a concrete tag (e.g. 'project:diamond-money-press' or a
+      flat tag like 'trading-directive'). `full_tag` is the value to pass to the
+      graph's `?tags=` filter; `children` is empty (its leaves are loaded lazily
+      via /api/folders/leaves).
+    """
+    name: str                       # display label (prefix, or the tag minus prefix)
+    full_tag: Optional[str] = None  # concrete tag for filtering; null for pure folders
+    node_count: int = 0
+    children: List["FolderNode"] = []
+    truncated_children: int = 0     # # of child tags omitted by the per-folder cap
+
+
+class FolderTreeResponse(BaseModel):
+    """Tag-derived folder tree for the active workspace(s)."""
+    workspace_filter: Optional[List[str]] = None
+    folders: List[FolderNode]
+    total_tags: int
+
+
+class FolderLeavesResponse(BaseModel):
+    """Documents/memories carrying a given tag (lazy-loaded leaves)."""
+    tag: str
+    nodes: List[GraphNode]

@@ -91,6 +91,26 @@ export interface WorkspaceListResponse {
   total: number;
 }
 
+// Tag-derived folder tree (Obsidian-style)
+export interface FolderNode {
+  name: string;
+  full_tag: string | null; // concrete tag for filtering; null for pure namespace folders
+  node_count: number;
+  children: FolderNode[];
+  truncated_children: number;
+}
+
+export interface FolderTreeResponse {
+  workspace_filter?: string[] | null;
+  folders: FolderNode[];
+  total_tags: number;
+}
+
+export interface FolderLeavesResponse {
+  tag: string;
+  nodes: GraphNode[];
+}
+
 export interface HealthResponse {
   status: string;
   database: string;
