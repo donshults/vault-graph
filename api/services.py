@@ -140,8 +140,12 @@ class GraphService:
             node_query = node_query.where(NodeCache.node_type.in_(node_types))
 
         if tags:
-            # Any tag matches
-            node_query = node_query.where(NodeCache.tags.overlap(tags))
+            # Any tag matches. NodeCache.tags is a generic ARRAY(Text) which has
+            # no .overlap(); use the Postgres array-overlap operator '&&' against
+            # the provided tag list cast to text[].
+            node_query = node_query.where(
+                text("node_cache.tags && CAST(:tag_list AS text[])").bindparams(tag_list=list(tags))
+            )
 
         if min_importance is not None:
             # Only filter memories by importance
