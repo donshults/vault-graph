@@ -45,39 +45,53 @@ function App() {
   }, []);
 
   const handleRebuild = useCallback(async () => {
+    console.log('Rebuild triggered, workspaces:', filters.workspaces);
     try {
       setRebuildStatus('Starting rebuild...');
       const response = await triggerRebuild(
         filters.workspaces.length > 0 ? filters.workspaces : undefined
       );
-      setRebuildStatus(`Rebuild started: ${response.build_id}`);
+      console.log('Rebuild response:', response);
+      setRebuildStatus(`Rebuild started: ${response.build_id.slice(0, 8)}...`);
 
       // Poll for completion
       const pollInterval = setInterval(async () => {
         try {
           const { getRebuildStatus } = await import('./api/client');
           const status = await getRebuildStatus(response.build_id);
-          setRebuildStatus(
-            `${status.status}: ${status.nodes_processed} nodes, ${status.edges_created} edges`
-          );
+          console.log('Rebuild status:', status);
+
+          if (status.status === 'running') {
+            setRebuildStatus(
+              `Building: ${status.nodes_processed} nodes, ${status.edges_created} edges`
+            );
+          } else {
+            setRebuildStatus(`${status.status}`);
+          }
 
           if (status.status === 'completed' || status.status === 'failed') {
             clearInterval(pollInterval);
             if (status.status === 'completed') {
+              setRebuildStatus('Complete! Refreshing...');
               setTimeout(() => {
                 setRebuildStatus(null);
                 refetch();
-              }, 2000);
+              }, 1500);
+            } else {
+              setRebuildStatus(`Failed: ${status.error_message || 'Unknown error'}`);
+              setTimeout(() => setRebuildStatus(null), 5000);
             }
           }
-        } catch {
+        } catch (pollErr) {
+          console.error('Poll error:', pollErr);
           clearInterval(pollInterval);
           setRebuildStatus(null);
         }
       }, 2000);
     } catch (err) {
+      console.error('Rebuild error:', err);
       setRebuildStatus(`Error: ${err instanceof Error ? err.message : 'Unknown'}`);
-      setTimeout(() => setRebuildStatus(null), 3000);
+      setTimeout(() => setRebuildStatus(null), 5000);
     }
   }, [filters.workspaces, refetch]);
 

@@ -80,11 +80,11 @@ export function useGraph(): UseGraphResult {
 
     const g = new Graph({ type: 'undirected', multi: false });
 
-    // Add nodes
+    // Add nodes (smaller sizes for better visibility)
     for (const node of graphData.nodes) {
       const nodeSize = node.node_type === 'memory'
-        ? 5 + (node.importance || 5)
-        : 10;
+        ? 2 + (node.importance || 5) * 0.3
+        : 4;
 
       g.addNode(node.id, {
         label: node.label,

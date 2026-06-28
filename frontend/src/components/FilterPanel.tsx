@@ -18,12 +18,14 @@ export function FilterPanel({
 }: FilterPanelProps) {
   const [isOpen, setIsOpen] = useState(false);
 
-  const toggleWorkspace = (slug: string) => {
-    const current = filters.workspaces;
-    const updated = current.includes(slug)
-      ? current.filter((w) => w !== slug)
-      : [...current, slug];
-    onFiltersChange({ workspaces: updated });
+  const selectWorkspace = (slug: string | null) => {
+    if (slug === null) {
+      // "All" selected - clear filter
+      onFiltersChange({ workspaces: [] });
+    } else {
+      // Select only this workspace
+      onFiltersChange({ workspaces: [slug] });
+    }
   };
 
   const toggleNodeType = (type: 'memory' | 'document') => {
@@ -70,24 +72,35 @@ export function FilterPanel({
         <div className="filter-panel mt-2">
           {/* Workspaces */}
           <div className="mb-4">
-            <h4 className="text-sm font-medium text-gray-400 mb-2">Workspaces</h4>
-            <div className="space-y-1">
+            <h4 className="text-sm font-medium text-gray-400 mb-2">Workspace</h4>
+            <div className="space-y-1 max-h-48 overflow-y-auto">
+              {/* All option */}
+              <label
+                className="flex items-center gap-2 text-sm cursor-pointer hover:bg-gray-700 rounded px-2 py-1"
+              >
+                <input
+                  type="radio"
+                  name="workspace"
+                  checked={filters.workspaces.length === 0}
+                  onChange={() => selectWorkspace(null)}
+                  className="border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
+                />
+                <span className="text-white">All Workspaces</span>
+              </label>
               {workspaces.map((ws) => (
                 <label
                   key={ws.slug}
                   className="flex items-center gap-2 text-sm cursor-pointer hover:bg-gray-700 rounded px-2 py-1"
                 >
                   <input
-                    type="checkbox"
-                    checked={
-                      filters.workspaces.length === 0 ||
-                      filters.workspaces.includes(ws.slug)
-                    }
-                    onChange={() => toggleWorkspace(ws.slug)}
-                    className="rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
+                    type="radio"
+                    name="workspace"
+                    checked={filters.workspaces.includes(ws.slug)}
+                    onChange={() => selectWorkspace(ws.slug)}
+                    className="border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
                   />
-                  <span className="text-white">{ws.name}</span>
-                  <span className="text-gray-500 text-xs">
+                  <span className="text-white truncate">{ws.name}</span>
+                  <span className="text-gray-500 text-xs flex-shrink-0">
                     ({ws.memory_count + ws.document_count})
                   </span>
                 </label>
