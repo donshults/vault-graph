@@ -19,7 +19,8 @@ from database import (
 from schemas import (
     GraphResponse, GraphNode, GraphEdge as GraphEdgeSchema,
     NodeDetailResponse, RelatedNode,
-    SearchResponse, SearchResult
+    SearchResponse, SearchResult,
+    FolderNode, FolderTreeResponse, FolderLeavesResponse
 )
 from config import get_settings
 from storage import get_storage
@@ -878,6 +879,170 @@ class GraphService:
 
         await db.commit()
         return edges_created
+
+
+# =============================================================================
+# Folder Service (tag-derived, Obsidian-style)
+# =============================================================================
+
+class FolderService:
+    """Builds an Obsidian-style folder tree from node tags.
+
+    The data has no real folder hierarchy, so 'folders' are derived from tags:
+    a tag like 'project:diamond-money-press' becomes folder 'project' > tag
+    'diamond-money-press'. Flat tags (no ':') and tags whose prefix is numeric
+    (e.g. '12:30' timestamps) are grouped under a single '# Tags' folder.
+    """
+
+    FLAT_FOLDER = "# Tags"  # bucket for tags with no usable namespace prefix
+
+    def __init__(self, db: AsyncSession, owner: str):
+        self.db = db
+        self.owner = owner
+
+    async def _resolve_workspace_ids(self, workspaces: Optional[List[str]]) -> List[UUID]:
+        """Resolve owner-scoped workspace IDs (all if none specified)."""
+        if workspaces:
+            result = await self.db.execute(
+                select(Workspace.id).where(
+                    Workspace.owner == self.owner,
+                    Workspace.slug.in_(workspaces),
+                    Workspace.is_active == True
+                )
+            )
+        else:
+            result = await self.db.execute(
+                select(Workspace.id).where(
+                    Workspace.owner == self.owner,
+                    Workspace.is_active == True
+                )
+            )
+        return [row.id for row in result.fetchall()]
+
+    @staticmethod
+    def _split_tag(tag: str) -> Tuple[str, str]:
+        """Return (folder, leaf_label) for a tag.
+
+        Namespaced only when the tag contains ':' and the prefix is non-numeric;
+        otherwise it goes under FLAT_FOLDER with its full name as the label.
+        """
+        if ":" in tag:
+            prefix, rest = tag.split(":", 1)
+            if prefix and not prefix.isdigit() and rest:
+                return prefix, rest
+        return FolderService.FLAT_FOLDER, tag
+
+    # Cap child tags shown per folder. The flat '# Tags' bucket can hold
+    # thousands of long-tail tags (most appearing once); showing them all is
+    # unusable. Top-N by count keeps the meaningful ones; the rest stay
+    # reachable via search. The UI shows a "+N more" hint from truncated_children.
+    MAX_CHILDREN_PER_FOLDER = 50
+
+    async def get_folder_tree(
+        self, workspaces: Optional[List[str]] = None
+    ) -> FolderTreeResponse:
+        """Build the tag-folder tree for the given workspaces."""
+        workspace_ids = await self._resolve_workspace_ids(workspaces)
+        if not workspace_ids:
+            return FolderTreeResponse(
+                workspace_filter=workspaces, folders=[], total_tags=0
+            )
+
+        # Count nodes per distinct tag, scoped to the workspaces.
+        result = await self.db.execute(
+            text("""
+                SELECT tag, COUNT(*) AS n
+                FROM vault_graph.node_cache, unnest(tags) AS tag
+                WHERE workspace_id = ANY(:workspace_ids)
+                GROUP BY tag
+            """),
+            {"workspace_ids": workspace_ids}
+        )
+        tag_counts = result.fetchall()
+
+        # Group tags into folders.
+        folders: dict = {}  # folder name -> {count, children: {full_tag: (label, count)}}
+        for row in tag_counts:
+            folder, leaf_label = self._split_tag(row.tag)
+            bucket = folders.setdefault(folder, {"count": 0, "children": {}})
+            bucket["count"] += row.n
+            bucket["children"][row.tag] = (leaf_label, row.n)
+
+        # Build response: folders sorted by count desc, flat bucket last;
+        # children sorted by count desc.
+        folder_nodes: List[FolderNode] = []
+        for folder_name, data in folders.items():
+            sorted_children = sorted(
+                data["children"].items(), key=lambda kv: kv[1][1], reverse=True
+            )
+            capped = sorted_children[: self.MAX_CHILDREN_PER_FOLDER]
+            children = [
+                FolderNode(name=label, full_tag=full_tag, node_count=cnt, children=[])
+                for full_tag, (label, cnt) in capped
+            ]
+            folder_nodes.append(FolderNode(
+                name=folder_name,
+                full_tag=None,
+                node_count=data["count"],
+                children=children,
+                truncated_children=max(0, len(sorted_children) - len(capped)),
+            ))
+
+        folder_nodes.sort(
+            key=lambda f: (f.name == self.FLAT_FOLDER, -f.node_count)
+        )
+
+        return FolderTreeResponse(
+            workspace_filter=workspaces,
+            folders=folder_nodes,
+            total_tags=len(tag_counts),
+        )
+
+    async def get_folder_leaves(
+        self,
+        tag: str,
+        workspaces: Optional[List[str]] = None,
+        limit: int = 200,
+    ) -> FolderLeavesResponse:
+        """List nodes carrying a given tag (lazy-loaded tree leaves)."""
+        workspace_ids = await self._resolve_workspace_ids(workspaces)
+        if not workspace_ids:
+            return FolderLeavesResponse(tag=tag, nodes=[])
+
+        # NodeCache.tags is a generic ARRAY(Text), which has no .overlap(); use a
+        # plain `= ANY(tags)` membership test (works on any text array column).
+        node_query = (
+            select(NodeCache)
+            .where(
+                NodeCache.workspace_id.in_(workspace_ids),
+                text("CAST(:tag AS text) = ANY(node_cache.tags)").bindparams(tag=tag),
+            )
+            .order_by(
+                NodeCache.importance.desc().nullslast(),
+                NodeCache.created_at.desc().nullslast(),
+            )
+            .limit(limit)
+        )
+        result = await self.db.execute(node_query)
+        rows = result.scalars().all()
+
+        nodes = [
+            GraphNode(
+                id=str(row.node_id),
+                node_type=row.node_type,
+                label=row.label,
+                workspace_id=str(row.workspace_id),
+                workspace_slug=row.workspace_slug,
+                tags=row.tags or [],
+                importance=row.importance,
+                memory_type=row.memory_type,
+                document_title=row.document_title,
+                has_file=row.has_file or False,
+                created_at=row.created_at,
+            )
+            for row in rows
+        ]
+        return FolderLeavesResponse(tag=tag, nodes=nodes)
 
 
 # =============================================================================

@@ -8,6 +8,7 @@ import { SearchBar } from './components/SearchBar';
 import { FilterPanel } from './components/FilterPanel';
 import { StatsBar } from './components/StatsBar';
 import { WorkspaceIndicator } from './components/WorkspaceIndicator';
+import { FolderSidebar } from './components/FolderSidebar';
 import { AuthModal } from './components/AuthModal';
 import { hasApiKey, triggerRebuild } from './api/client';
 
@@ -44,6 +45,15 @@ function App() {
   const handleSearchResults = useCallback((nodeIds: string[]) => {
     setHighlightedNodeIds(nodeIds);
   }, []);
+
+  // Click a folder tag -> filter the graph by it; click the active tag -> clear.
+  const handleSelectTag = useCallback(
+    (tag: string) => {
+      const isActive = filters.tags.length === 1 && filters.tags[0] === tag;
+      setFilters({ tags: isActive ? [] : [tag] });
+    },
+    [filters.tags, setFilters]
+  );
 
   const handleRebuild = useCallback(async () => {
     console.log('Rebuild triggered, workspaces:', filters.workspaces);
@@ -127,8 +137,16 @@ function App() {
 
   return (
     <div className="flex w-full h-full">
+      {/* Folder sidebar (Obsidian-style tag tree) */}
+      <FolderSidebar
+        workspaces={filters.workspaces}
+        activeTags={filters.tags}
+        onSelectTag={handleSelectTag}
+        onSelectNode={handleNodeClick}
+      />
+
       {/* Main graph area */}
-      <div className="flex-1 relative">
+      <div className="flex-1 relative min-w-0">
         {/* Search */}
         <SearchBar
           onResultClick={handleNodeClick}
