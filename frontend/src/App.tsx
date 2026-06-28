@@ -7,6 +7,7 @@ import { DetailPanel } from './components/DetailPanel';
 import { SearchBar } from './components/SearchBar';
 import { FilterPanel } from './components/FilterPanel';
 import { StatsBar } from './components/StatsBar';
+import { WorkspaceIndicator } from './components/WorkspaceIndicator';
 import { AuthModal } from './components/AuthModal';
 import { hasApiKey, triggerRebuild } from './api/client';
 
@@ -132,6 +133,12 @@ function App() {
         <SearchBar
           onResultClick={handleNodeClick}
           onSearchResults={handleSearchResults}
+        />
+
+        {/* Active workspace indicator */}
+        <WorkspaceIndicator
+          selected={filters.workspaces}
+          workspaces={workspaces}
         />
 
         {/* Filters */}
