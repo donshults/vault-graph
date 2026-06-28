@@ -84,10 +84,11 @@ body {
          focus:ring-blue-500 focus:border-transparent;
 }
 
-/* Filter panel */
+/* Filter panel — anchored under the right-aligned Filters button, constrained
+   to the viewport height with internal scrolling so it never overflows. */
 .filter-panel {
-  @apply absolute top-16 left-4 z-10 bg-gray-800 border border-gray-700
-         rounded-lg p-4 w-80;
+  @apply z-10 bg-gray-800 border border-gray-700 rounded-lg p-4 w-80
+         max-w-[calc(100vw-2rem)] max-h-[calc(100vh-6rem)] overflow-y-auto;
 }
 
 /* Loading spinner */

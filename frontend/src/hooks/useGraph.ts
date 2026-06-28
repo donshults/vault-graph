@@ -31,14 +31,65 @@ const DEFAULT_FILTERS: GraphFilters = {
   limit: 300, // Default to 300 nodes for good performance
 };
 
+// On first load, focus the graph on a single workspace so it's legible instead
+// of showing every workspace's nodes mixed together. The target workspace can be
+// supplied at runtime via the `?workspace=` URL param (name or slug, matched
+// case-insensitively), or at build time via VITE_DEFAULT_WORKSPACE. If neither is
+// set, no default is applied and all workspaces load.
+//
+//   ?workspace=DS9 Platform   focus by name
+//   ?workspace=ds9_platform   focus by slug
+//   ?workspace=all            explicitly show all workspaces
+function getConfiguredDefaultWorkspace(): string | null {
+  if (typeof window !== 'undefined') {
+    const param = new URLSearchParams(window.location.search).get('workspace');
+    if (param !== null && param.trim() !== '') return param.trim();
+  }
+  const envDefault = import.meta.env.VITE_DEFAULT_WORKSPACE as string | undefined;
+  return envDefault && envDefault.trim() !== '' ? envDefault.trim() : null;
+}
+
+// Resolve the configured default to an actual workspace slug. Returns:
+//   - a slug      -> focus that workspace on load
+//   - '' (empty)  -> caller should show all workspaces (no filter)
+//   - null        -> no default configured; leave default behavior to caller
+function resolveDefaultWorkspaceSlug(
+  workspaces: WorkspaceSummary[]
+): string | '' | null {
+  const configured = getConfiguredDefaultWorkspace();
+  if (configured === null) return null;
+  if (configured.toLowerCase() === 'all') return ''; // explicit "show everything"
+  if (workspaces.length === 0) return null;
+
+  const target = configured.toLowerCase();
+  const match = workspaces.find(
+    (ws) => ws.name.toLowerCase() === target || ws.slug.toLowerCase() === target
+  );
+  if (match) return match.slug;
+
+  // Configured name didn't match anything — warn and fall back to no filter
+  // rather than silently focusing an arbitrary workspace.
+  console.warn(
+    `[vault-graph] Configured default workspace "${configured}" not found; showing all workspaces.`
+  );
+  return '';
+}
+
 export function useGraph(): UseGraphResult {
   const [graphData, setGraphData] = useState<GraphResponse | null>(null);
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filters, setFiltersState] = useState<GraphFilters>(DEFAULT_FILTERS);
+  // Tracks whether we've already applied the startup default workspace, so
+  // clearing the workspace filter later isn't immediately overridden.
+  const [defaultApplied, setDefaultApplied] = useState(false);
 
   const setFilters = useCallback((newFilters: Partial<GraphFilters>) => {
+    // Any explicit workspace change by the user counts as having seen the default.
+    if (newFilters.workspaces !== undefined) {
+      setDefaultApplied(true);
+    }
     setFiltersState((prev) => ({ ...prev, ...newFilters }));
   }, []);
 
@@ -51,9 +102,23 @@ export function useGraph(): UseGraphResult {
       const wsResponse = await getWorkspaces();
       setWorkspaces(wsResponse.workspaces);
 
+      // On the very first load, if a default workspace is configured (via
+      // ?workspace= or VITE_DEFAULT_WORKSPACE), focus the graph on it so it's
+      // readable. Fetch the graph already scoped to it to avoid a wasted call.
+      let effectiveWorkspaces = filters.workspaces;
+      if (!defaultApplied && filters.workspaces.length === 0) {
+        const defaultSlug = resolveDefaultWorkspaceSlug(wsResponse.workspaces);
+        if (defaultSlug) {
+          effectiveWorkspaces = [defaultSlug];
+          setFiltersState((prev) => ({ ...prev, workspaces: effectiveWorkspaces }));
+        }
+        // defaultSlug === '' (show all) or null (not configured) -> no filter
+        setDefaultApplied(true);
+      }
+
       // Fetch graph with current filters
       const graphResponse = await getGraph({
-        workspaces: filters.workspaces.length > 0 ? filters.workspaces : undefined,
+        workspaces: effectiveWorkspaces.length > 0 ? effectiveWorkspaces : undefined,
         nodeTypes: filters.nodeTypes.length > 0 ? filters.nodeTypes : undefined,
         tags: filters.tags.length > 0 ? filters.tags : undefined,
         minImportance: filters.minImportance,
@@ -68,7 +133,7 @@ export function useGraph(): UseGraphResult {
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, [filters, defaultApplied]);
 
   useEffect(() => {
     fetchData();
