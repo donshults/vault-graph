@@ -23,6 +23,24 @@ export function GraphView({
   const layoutRef = useRef<FA2Layout | null>(null);
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
 
+  // Use refs for state that reducers need to access
+  const selectedNodeRef = useRef(selectedNodeId);
+  const hoveredNodeRef = useRef(hoveredNode);
+  const highlightedNodesRef = useRef(highlightedNodes);
+
+  // Keep refs in sync with props/state
+  useEffect(() => {
+    selectedNodeRef.current = selectedNodeId;
+  }, [selectedNodeId]);
+
+  useEffect(() => {
+    hoveredNodeRef.current = hoveredNode;
+  }, [hoveredNode]);
+
+  useEffect(() => {
+    highlightedNodesRef.current = highlightedNodes;
+  }, [highlightedNodes]);
+
   // Initialize Sigma
   useEffect(() => {
     if (!containerRef.current || !graph) return;
@@ -36,24 +54,27 @@ export function GraphView({
       defaultEdgeColor: '#444',
       minCameraRatio: 0.1,
       maxCameraRatio: 10,
-      // Node reducers for highlighting
+      // Node reducers for highlighting (use refs for current state)
       nodeReducer: (node, data) => {
         const res = { ...data };
+        const currentSelected = selectedNodeRef.current;
+        const currentHovered = hoveredNodeRef.current;
+        const currentHighlighted = highlightedNodesRef.current;
 
         // Highlight selected node
-        if (node === selectedNodeId) {
+        if (node === currentSelected) {
           res.highlighted = true;
           res.size = (data.size as number) * 1.5;
         }
 
         // Highlight search results
-        if (highlightedNodes?.has(node)) {
+        if (currentHighlighted?.has(node)) {
           res.color = '#FFD700'; // Gold
         }
 
         // Dim non-neighbors when hovering
-        if (hoveredNode && hoveredNode !== node) {
-          const neighbors = graph.neighbors(hoveredNode);
+        if (currentHovered && currentHovered !== node) {
+          const neighbors = graph.neighbors(currentHovered);
           if (!neighbors.includes(node)) {
             res.color = '#333';
             res.label = '';
@@ -64,19 +85,21 @@ export function GraphView({
       },
       edgeReducer: (edge, data) => {
         const res = { ...data };
+        const currentSelected = selectedNodeRef.current;
+        const currentHovered = hoveredNodeRef.current;
 
         // Highlight edges connected to selected node
-        if (selectedNodeId) {
+        if (currentSelected) {
           const [source, target] = graph.extremities(edge);
-          if (source !== selectedNodeId && target !== selectedNodeId) {
+          if (source !== currentSelected && target !== currentSelected) {
             res.color = '#222';
           }
         }
 
         // Dim edges when hovering
-        if (hoveredNode) {
+        if (currentHovered) {
           const [source, target] = graph.extremities(edge);
-          if (source !== hoveredNode && target !== hoveredNode) {
+          if (source !== currentHovered && target !== currentHovered) {
             res.hidden = true;
           }
         }
@@ -128,9 +151,10 @@ export function GraphView({
       layout.stop();
       sigma.kill();
     };
-  }, [graph, selectedNodeId, hoveredNode, highlightedNodes, onNodeClick]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graph]); // Only recreate on graph change, not on hover/selection
 
-  // Refresh on state changes
+  // Refresh on state changes (without recreating Sigma)
   useEffect(() => {
     sigmaRef.current?.refresh();
   }, [selectedNodeId, hoveredNode, highlightedNodes]);
