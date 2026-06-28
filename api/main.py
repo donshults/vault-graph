@@ -315,10 +315,14 @@ async def trigger_rebuild(
     owner: str = Depends(get_owner),
     _auth: bool = Depends(verify_api_key)
 ):
-    """Trigger a graph rebuild."""
+    """Trigger a graph rebuild with optional threshold parameters."""
     graph_service = GraphService(db, owner)
     build_id = await graph_service.trigger_rebuild(
-        workspace_slugs=request.workspace_slugs if request else None
+        workspace_slugs=request.workspace_slugs if request else None,
+        jaccard_threshold=request.jaccard_threshold if request else None,
+        similarity_threshold=request.similarity_threshold if request else None,
+        max_edges_per_node=request.max_edges_per_node if request else None,
+        skip_semantic_edges=request.skip_semantic_edges if request else False
     )
     return RebuildResponse(
         build_id=str(build_id),

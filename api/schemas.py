@@ -173,6 +173,28 @@ class RebuildRequest(BaseModel):
         default=None,
         description="Limit rebuild to specific workspaces"
     )
+    jaccard_threshold: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Minimum Jaccard similarity for tag edges (default 0.5)"
+    )
+    similarity_threshold: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Minimum cosine similarity for semantic edges (default 0.7)"
+    )
+    max_edges_per_node: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=50,
+        description="Maximum edges per node (default 5)"
+    )
+    skip_semantic_edges: Optional[bool] = Field(
+        default=False,
+        description="Skip slow semantic edge computation"
+    )
 
 
 class RebuildResponse(BaseModel):

@@ -176,7 +176,11 @@ class GraphService:
 
     async def trigger_rebuild(
         self,
-        workspace_slugs: Optional[List[str]] = None
+        workspace_slugs: Optional[List[str]] = None,
+        jaccard_threshold: Optional[float] = None,
+        similarity_threshold: Optional[float] = None,
+        max_edges_per_node: Optional[int] = None,
+        skip_semantic_edges: bool = False
     ) -> UUID:
         """Trigger a graph rebuild job."""
         # Create build record
@@ -207,8 +211,19 @@ class GraphService:
         # Capture owner for the background task
         owner = self.owner
 
+        # Use provided thresholds or fall back to settings
+        jt = jaccard_threshold if jaccard_threshold is not None else settings.edge_jaccard_threshold
+        st = similarity_threshold if similarity_threshold is not None else settings.edge_similarity_threshold
+        me = max_edges_per_node if max_edges_per_node is not None else settings.max_knn_edges
+
         # Run rebuild in background
-        asyncio.create_task(self._run_rebuild(build_id, workspace_slugs, owner))
+        asyncio.create_task(self._run_rebuild(
+            build_id, workspace_slugs, owner,
+            jaccard_threshold=jt,
+            similarity_threshold=st,
+            max_edges_per_node=me,
+            skip_semantic_edges=skip_semantic_edges
+        ))
 
         return build_id
 
@@ -216,12 +231,18 @@ class GraphService:
         self,
         build_id: UUID,
         workspace_slugs: Optional[List[str]],
-        owner: str
+        owner: str,
+        jaccard_threshold: float = 0.5,
+        similarity_threshold: float = 0.7,
+        max_edges_per_node: int = 5,
+        skip_semantic_edges: bool = False
     ):
         """Run the actual rebuild process."""
         from database import async_session
 
-        logger.info(f"Starting rebuild {build_id} for owner {owner}")
+        logger.info(f"Starting rebuild {build_id} for owner {owner} "
+                   f"(jaccard={jaccard_threshold}, similarity={similarity_threshold}, "
+                   f"max_edges={max_edges_per_node}, skip_semantic={skip_semantic_edges})")
 
         async with async_session() as db:
             try:
@@ -437,10 +458,21 @@ class GraphService:
                 logger.info(f"Build {build_id}: Cached {nodes_processed} nodes, computing edges...")
 
                 # Compute tag-based edges (Jaccard similarity)
-                edges_created += await self._compute_tag_edges(db, workspace_ids, build_id)
+                edges_created += await self._compute_tag_edges(
+                    db, workspace_ids, build_id,
+                    threshold=jaccard_threshold,
+                    max_edges_per_node=max_edges_per_node
+                )
 
-                # Compute semantic edges (kNN)
-                edges_created += await self._compute_semantic_edges(db, workspace_ids, build_id)
+                # Compute semantic edges (kNN) - optional
+                if not skip_semantic_edges:
+                    edges_created += await self._compute_semantic_edges(
+                        db, workspace_ids, build_id,
+                        threshold=similarity_threshold,
+                        max_neighbors=max_edges_per_node
+                    )
+                else:
+                    logger.info(f"Build {build_id}: Skipping semantic edges (skip_semantic_edges=True)")
 
                 # Compute document-memory edges
                 edges_created += await self._compute_doc_memory_edges(db, workspace_ids, build_id)
@@ -486,17 +518,17 @@ class GraphService:
         self,
         db: AsyncSession,
         workspace_ids: List[UUID],
-        build_id: UUID
+        build_id: UUID,
+        threshold: float = 0.5,
+        max_edges_per_node: int = 5
     ) -> int:
         """Compute edges based on tag Jaccard similarity.
 
         Optimized using inverted index - only compares nodes that share tags.
-        Limits edges per node to max_knn_edges (default 5) to prevent graph explosion.
+        Limits edges per node to max_edges_per_node to prevent graph explosion.
         """
         from collections import defaultdict
         import heapq
-
-        max_edges_per_node = settings.max_knn_edges  # Reuse kNN setting for consistency
 
         # Get all nodes with tags
         result = await db.execute(
@@ -543,9 +575,7 @@ class GraphService:
                     pair = (min(id1, id2), max(id1, id2))
                     candidate_pairs.add(pair)
 
-        logger.info(f"Found {len(candidate_pairs)} candidate pairs to evaluate")
-
-        threshold = settings.edge_jaccard_threshold
+        logger.info(f"Found {len(candidate_pairs)} candidate pairs to evaluate (threshold={threshold})")
 
         # Collect all valid edges with similarity scores
         # node_edges[node_id] = list of (similarity, edge_data)
@@ -644,11 +674,11 @@ class GraphService:
         self,
         db: AsyncSession,
         workspace_ids: List[UUID],
-        build_id: UUID
+        build_id: UUID,
+        threshold: float = 0.7,
+        max_neighbors: int = 5
     ) -> int:
         """Compute edges based on embedding similarity (kNN)."""
-        threshold = settings.edge_similarity_threshold
-        max_neighbors = settings.max_knn_edges
 
         # Use pgvector kNN query for memories
         result = await db.execute(
