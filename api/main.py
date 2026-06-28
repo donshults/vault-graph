@@ -240,6 +240,7 @@ async def get_graph(
     tags: Optional[str] = Query(None, description="Comma-separated tags"),
     min_importance: Optional[int] = Query(None, ge=1, le=10),
     edge_types: Optional[str] = Query(None, description="Comma-separated edge types"),
+    limit: Optional[int] = Query(500, ge=10, le=5000, description="Max nodes to return (default 500)"),
     db: AsyncSession = Depends(get_db),
     owner: str = Depends(get_owner),
     _auth: bool = Depends(verify_api_key)
@@ -257,7 +258,8 @@ async def get_graph(
         node_types=node_type_list,
         tags=tag_list,
         min_importance=min_importance,
-        edge_types=edge_type_list
+        edge_types=edge_type_list,
+        limit=limit
     )
 
 

@@ -161,6 +161,31 @@ export function FilterPanel({
             </div>
           </div>
 
+          {/* Node Limit slider */}
+          <div className="mb-4">
+            <h4 className="text-sm font-medium text-gray-400 mb-2">
+              Max Nodes: {filters.limit || 300}
+            </h4>
+            <input
+              type="range"
+              min="50"
+              max="1000"
+              step="50"
+              value={filters.limit || 300}
+              onChange={(e) =>
+                onFiltersChange({
+                  limit: parseInt(e.target.value),
+                })
+              }
+              className="w-full"
+            />
+            <div className="flex justify-between text-xs text-gray-500">
+              <span>50</span>
+              <span>Fast</span>
+              <span>1000</span>
+            </div>
+          </div>
+
           {/* Importance filter for memories */}
           <div className="mb-4">
             <h4 className="text-sm font-medium text-gray-400 mb-2">

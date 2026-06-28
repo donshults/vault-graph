@@ -56,6 +56,7 @@ export async function getGraph(params?: {
   tags?: string[];
   minImportance?: number;
   edgeTypes?: string[];
+  limit?: number;
 }): Promise<GraphResponse> {
   const searchParams = new URLSearchParams();
 
@@ -73,6 +74,9 @@ export async function getGraph(params?: {
   }
   if (params?.edgeTypes?.length) {
     searchParams.set('edge_types', params.edgeTypes.join(','));
+  }
+  if (params?.limit !== undefined) {
+    searchParams.set('limit', params.limit.toString());
   }
 
   const query = searchParams.toString();

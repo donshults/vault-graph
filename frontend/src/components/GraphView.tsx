@@ -102,24 +102,26 @@ export function GraphView({
 
     sigmaRef.current = sigma;
 
-    // Start ForceAtlas2 layout
+    // Start ForceAtlas2 layout with optimized settings
+    const nodeCount = graph.order;
     const layout = new FA2Layout(graph, {
       settings: {
-        gravity: 1,
-        scalingRatio: 2,
+        gravity: nodeCount > 200 ? 2 : 1,
+        scalingRatio: nodeCount > 200 ? 4 : 2,
         strongGravityMode: true,
-        slowDown: 10,
+        slowDown: nodeCount > 200 ? 5 : 10,
         barnesHutOptimize: true,
-        barnesHutTheta: 0.5,
+        barnesHutTheta: 0.6,
+        adjustSizes: true,
       },
     });
     layout.start();
     layoutRef.current = layout;
 
-    // Stop layout after 5 seconds
+    // Stop layout after 3 seconds (faster stabilization)
     const layoutTimeout = setTimeout(() => {
       layout.stop();
-    }, 5000);
+    }, 3000);
 
     return () => {
       clearTimeout(layoutTimeout);

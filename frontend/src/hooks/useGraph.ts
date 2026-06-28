@@ -28,6 +28,7 @@ const DEFAULT_FILTERS: GraphFilters = {
   tags: [],
   minImportance: undefined,
   edgeTypes: ['semantic', 'tag', 'document_memory', 'project'],
+  limit: 300, // Default to 300 nodes for good performance
 };
 
 export function useGraph(): UseGraphResult {
@@ -57,6 +58,7 @@ export function useGraph(): UseGraphResult {
         tags: filters.tags.length > 0 ? filters.tags : undefined,
         minImportance: filters.minImportance,
         edgeTypes: filters.edgeTypes.length > 0 ? filters.edgeTypes : undefined,
+        limit: filters.limit,
       });
 
       setGraphData(graphResponse);

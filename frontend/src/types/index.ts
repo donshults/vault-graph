@@ -123,6 +123,7 @@ export interface GraphFilters {
   tags: string[];
   minImportance?: number;
   edgeTypes: ('semantic' | 'tag' | 'document_memory' | 'project')[];
+  limit?: number;
 }
 
 // Color scheme

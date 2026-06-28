@@ -68,9 +68,10 @@ class GraphService:
         node_types: Optional[List[str]] = None,
         tags: Optional[List[str]] = None,
         min_importance: Optional[int] = None,
-        edge_types: Optional[List[str]] = None
+        edge_types: Optional[List[str]] = None,
+        limit: int = 500
     ) -> GraphResponse:
-        """Get graph topology with optional filtering."""
+        """Get graph topology with optional filtering and node limit."""
         # Get workspace IDs for filtering
         workspace_ids = []
         if workspaces:
@@ -121,6 +122,12 @@ class GraphService:
                     NodeCache.importance >= min_importance
                 )
             )
+
+        # Order by importance/recency and apply limit
+        node_query = node_query.order_by(
+            NodeCache.importance.desc().nullslast(),
+            NodeCache.created_at.desc().nullslast()
+        ).limit(limit)
 
         result = await self.db.execute(node_query)
         node_rows = result.scalars().all()
