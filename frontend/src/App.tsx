@@ -7,6 +7,7 @@ import { DetailPanel } from './components/DetailPanel';
 import { SearchBar } from './components/SearchBar';
 import { FilterPanel } from './components/FilterPanel';
 import { StatsBar } from './components/StatsBar';
+import { Legend } from './components/Legend';
 import { WorkspaceIndicator } from './components/WorkspaceIndicator';
 import { FolderSidebar } from './components/FolderSidebar';
 import { AuthModal } from './components/AuthModal';
@@ -145,81 +146,59 @@ function App() {
         onSelectNode={handleNodeClick}
       />
 
-      {/* Main graph area */}
-      <div className="flex-1 relative min-w-0">
-        {/* Search */}
-        <SearchBar
-          onResultClick={handleNodeClick}
-          onSearchResults={handleSearchResults}
-        />
+      {/* Main graph area (graph fills the space above a fixed footer) */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Graph + floating overlays */}
+        <div className="flex-1 relative min-h-0">
+          {/* Search */}
+          <SearchBar
+            onResultClick={handleNodeClick}
+            onSearchResults={handleSearchResults}
+          />
 
-        {/* Active workspace indicator */}
-        <WorkspaceIndicator
-          selected={filters.workspaces}
-          workspaces={workspaces}
-        />
+          {/* Active workspace indicator */}
+          <WorkspaceIndicator
+            selected={filters.workspaces}
+            workspaces={workspaces}
+          />
 
-        {/* Filters */}
-        <FilterPanel
-          filters={filters}
-          onFiltersChange={setFilters}
-          workspaces={workspaces}
-          onRebuild={handleRebuild}
-        />
+          {/* Filters */}
+          <FilterPanel
+            filters={filters}
+            onFiltersChange={setFilters}
+            workspaces={workspaces}
+            onRebuild={handleRebuild}
+          />
 
-        {/* Rebuild status */}
-        {rebuildStatus && (
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 bg-violet-900/90 text-violet-100 px-4 py-2 rounded-lg text-sm flex items-center gap-2">
-            <div className="loading-spinner !w-4 !h-4 !border-2 !border-violet-400 !border-t-transparent" />
-            {rebuildStatus}
-          </div>
-        )}
-
-        {/* Error message */}
-        {error && (
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 bg-red-900/90 text-red-100 px-4 py-2 rounded-lg text-sm">
-            {error}
-          </div>
-        )}
-
-        {/* Graph */}
-        <GraphView
-          graph={graph}
-          selectedNodeId={selectedNodeId}
-          onNodeClick={handleNodeClick}
-          highlightedNodes={highlightedNodes}
-        />
-
-        {/* Stats */}
-        <StatsBar stats={stats} loading={loading} />
-
-        {/* Legend */}
-        <div className="absolute bottom-4 right-4 z-10 bg-gray-800/90 backdrop-blur-sm border border-gray-700 rounded-lg px-4 py-3">
-          <div className="text-xs text-gray-400 mb-2">Legend</div>
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 text-xs">
-              <span className="w-3 h-3 rounded-full bg-blue-500" />
-              <span className="text-gray-300">Memory</span>
+          {/* Rebuild status */}
+          {rebuildStatus && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 bg-violet-900/90 text-violet-100 px-4 py-2 rounded-lg text-sm flex items-center gap-2">
+              <div className="loading-spinner !w-4 !h-4 !border-2 !border-violet-400 !border-t-transparent" />
+              {rebuildStatus}
             </div>
-            <div className="flex items-center gap-2 text-xs">
-              <span className="w-3 h-3 rounded-full bg-emerald-500" />
-              <span className="text-gray-300">Document</span>
+          )}
+
+          {/* Error message */}
+          {error && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 bg-red-900/90 text-red-100 px-4 py-2 rounded-lg text-sm">
+              {error}
             </div>
-            <div className="h-px bg-gray-700 my-2" />
-            <div className="flex items-center gap-2 text-xs">
-              <span className="w-3 h-0.5 bg-violet-500" />
-              <span className="text-gray-300">Semantic</span>
-            </div>
-            <div className="flex items-center gap-2 text-xs">
-              <span className="w-3 h-0.5 bg-amber-500" />
-              <span className="text-gray-300">Tag</span>
-            </div>
-            <div className="flex items-center gap-2 text-xs">
-              <span className="w-3 h-0.5 bg-indigo-500" />
-              <span className="text-gray-300">Doc-Memory</span>
-            </div>
-          </div>
+          )}
+
+          {/* Graph */}
+          <GraphView
+            graph={graph}
+            selectedNodeId={selectedNodeId}
+            onNodeClick={handleNodeClick}
+            highlightedNodes={highlightedNodes}
+          />
         </div>
+
+        {/* Footer: stats on the left, collapsible legend on the right */}
+        <footer className="flex items-center justify-between gap-4 px-4 py-2 border-t border-gray-800 bg-gray-900 text-gray-300">
+          <StatsBar stats={stats} loading={loading} />
+          <Legend />
+        </footer>
       </div>
 
       {/* Detail panel */}

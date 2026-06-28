@@ -12,8 +12,8 @@ interface StatsBarProps {
 
 export function StatsBar({ stats, loading }: StatsBarProps) {
   return (
-    <div className="absolute bottom-4 left-4 z-10 flex gap-4">
-      <div className="bg-gray-800/90 backdrop-blur-sm border border-gray-700 rounded-lg px-4 py-2 flex items-center gap-6 text-sm">
+    <div className="flex gap-4">
+      <div className="flex items-center gap-6 text-sm">
         {loading ? (
           <div className="flex items-center gap-2 text-gray-400">
             <div className="loading-spinner !w-4 !h-4 !border-2" />
