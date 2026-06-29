@@ -116,11 +116,15 @@ export async function getWorkspaces(): Promise<WorkspaceListResponse> {
 
 // Folder API (tag-derived tree)
 export async function getFolders(
-  workspaces?: string[]
+  workspaces?: string[],
+  q?: string
 ): Promise<FolderTreeResponse> {
   const params = new URLSearchParams();
   if (workspaces?.length) {
     params.set('workspaces', workspaces.join(','));
+  }
+  if (q && q.trim()) {
+    params.set('q', q.trim());
   }
   const query = params.toString();
   return fetchApi<FolderTreeResponse>(`/folders${query ? `?${query}` : ''}`);

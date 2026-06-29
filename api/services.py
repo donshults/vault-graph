@@ -939,13 +939,23 @@ class FolderService:
     # Cap child tags shown per folder. The flat '# Tags' bucket can hold
     # thousands of long-tail tags (most appearing once); showing them all is
     # unusable. Top-N by count keeps the meaningful ones; the rest stay
-    # reachable via search. The UI shows a "+N more" hint from truncated_children.
-    MAX_CHILDREN_PER_FOLDER = 50
+    # reachable via the sidebar search. The UI shows a "+N more" hint from
+    # truncated_children. When a search query is supplied, the cap is bypassed
+    # so a matching tag is never hidden regardless of its rank.
+    MAX_CHILDREN_PER_FOLDER = 200
 
     async def get_folder_tree(
-        self, workspaces: Optional[List[str]] = None
+        self,
+        workspaces: Optional[List[str]] = None,
+        query: Optional[str] = None,
     ) -> FolderTreeResponse:
-        """Build the tag-folder tree for the given workspaces."""
+        """Build the tag-folder tree for the given workspaces.
+
+        If `query` is given, only tags whose full name contains it
+        (case-insensitive) are included, and the per-folder cap is bypassed so
+        every match is shown — this is how a buried tag like 'strategy-guide'
+        becomes findable.
+        """
         workspace_ids = await self._resolve_workspace_ids(workspaces)
         if not workspace_ids:
             return FolderTreeResponse(
@@ -964,13 +974,23 @@ class FolderService:
         )
         tag_counts = result.fetchall()
 
-        # Group tags into folders.
+        q = query.strip().lower() if query else None
+        searching = bool(q)
+
+        # Group tags into folders (filtering by the query when searching).
         folders: dict = {}  # folder name -> {count, children: {full_tag: (label, count)}}
+        matched_tags = 0
         for row in tag_counts:
+            if q and q not in row.tag.lower():
+                continue
+            matched_tags += 1
             folder, leaf_label = self._split_tag(row.tag)
             bucket = folders.setdefault(folder, {"count": 0, "children": {}})
             bucket["count"] += row.n
             bucket["children"][row.tag] = (leaf_label, row.n)
+
+        # When searching, bypass the cap so no match is hidden.
+        cap = len(tag_counts) + 1 if searching else self.MAX_CHILDREN_PER_FOLDER
 
         # Build response: folders sorted by count desc, flat bucket last;
         # children sorted by count desc.
@@ -979,7 +999,7 @@ class FolderService:
             sorted_children = sorted(
                 data["children"].items(), key=lambda kv: kv[1][1], reverse=True
             )
-            capped = sorted_children[: self.MAX_CHILDREN_PER_FOLDER]
+            capped = sorted_children[:cap]
             children = [
                 FolderNode(name=label, full_tag=full_tag, node_count=cnt, children=[])
                 for full_tag, (label, cnt) in capped
@@ -999,7 +1019,7 @@ class FolderService:
         return FolderTreeResponse(
             workspace_filter=workspaces,
             folders=folder_nodes,
-            total_tags=len(tag_counts),
+            total_tags=matched_tags if searching else len(tag_counts),
         )
 
     async def get_folder_leaves(

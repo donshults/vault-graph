@@ -42,6 +42,11 @@ export function FolderSidebar({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Tag search box. `tagQuery` is the live input; `debouncedQuery` drives the
+  // fetch so we don't hit the API on every keystroke.
+  const [tagQuery, setTagQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+
   // Which namespace folders are expanded.
   const [openFolders, setOpenFolders] = useState<Set<string>>(new Set());
   // Lazy-loaded leaves per tag, plus loading state.
@@ -49,19 +54,27 @@ export function FolderSidebar({
   const [loadingTags, setLoadingTags] = useState<Set<string>>(new Set());
   const [openTags, setOpenTags] = useState<Set<string>>(new Set());
 
-  // Fetch the folder tree whenever the workspace scope changes.
+  // Debounce the search input.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(tagQuery), 250);
+    return () => clearTimeout(t);
+  }, [tagQuery]);
+
+  // Fetch the folder tree whenever the workspace scope or search query changes.
   useEffect(() => {
     let cancelled = false;
+    const q = debouncedQuery.trim();
     setLoading(true);
     setError(null);
-    getFolders(workspaces.length > 0 ? workspaces : undefined)
+    getFolders(workspaces.length > 0 ? workspaces : undefined, q || undefined)
       .then((res) => {
         if (cancelled) return;
         setFolders(res.folders);
-        // Reset expansion + leaf caches when the scope changes.
-        setOpenFolders(new Set());
-        setOpenTags(new Set());
         setLeaves({});
+        setOpenTags(new Set());
+        // While searching, auto-expand all returned folders so matches are
+        // visible without manual clicking. Otherwise collapse to top level.
+        setOpenFolders(q ? new Set(res.folders.map((f) => f.name)) : new Set());
       })
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load folders');
@@ -72,7 +85,7 @@ export function FolderSidebar({
     return () => {
       cancelled = true;
     };
-  }, [workspaces]);
+  }, [workspaces, debouncedQuery]);
 
   const toggleFolder = useCallback((name: string) => {
     setOpenFolders((prev) => {
@@ -143,6 +156,36 @@ export function FolderSidebar({
         </button>
       </div>
 
+      {/* Tag search */}
+      <div className="px-2 py-2 border-b border-gray-800 sticky top-[41px] bg-gray-900 z-10">
+        <div className="relative">
+          <svg
+            className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500"
+            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            type="text"
+            value={tagQuery}
+            onChange={(e) => setTagQuery(e.target.value)}
+            placeholder="Search tags…"
+            className="w-full bg-gray-800 border border-gray-700 rounded-md pl-7 pr-7 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+          {tagQuery && (
+            <button
+              onClick={() => setTagQuery('')}
+              title="Clear"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
+      </div>
+
       <div className="p-2">
         {loading && (
           <div className="flex items-center gap-2 text-gray-400 text-sm px-2 py-3">
@@ -152,7 +195,11 @@ export function FolderSidebar({
         )}
         {error && <div className="text-red-400 text-xs px-2 py-3">{error}</div>}
         {!loading && !error && folders.length === 0 && (
-          <div className="text-gray-500 text-xs px-2 py-3">No tags in this workspace.</div>
+          <div className="text-gray-500 text-xs px-2 py-3">
+            {debouncedQuery.trim()
+              ? `No tags match "${debouncedQuery.trim()}".`
+              : 'No tags in this workspace.'}
+          </div>
         )}
 
         {!loading &&

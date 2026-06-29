@@ -464,6 +464,7 @@ async def list_workspaces(
 @app.get("/api/folders", response_model=FolderTreeResponse, tags=["Folders"])
 async def get_folders(
     workspaces: Optional[str] = Query(None, description="Comma-separated workspace slugs"),
+    q: Optional[str] = Query(None, description="Filter tags by case-insensitive substring"),
     db: AsyncSession = Depends(get_db),
     owner: str = Depends(get_owner),
     _auth: bool = Depends(verify_api_key)
@@ -471,7 +472,7 @@ async def get_folders(
     """Get the tag-derived folder tree for the active workspace(s)."""
     workspace_list = workspaces.split(",") if workspaces else None
     folder_service = FolderService(db, owner)
-    return await folder_service.get_folder_tree(workspaces=workspace_list)
+    return await folder_service.get_folder_tree(workspaces=workspace_list, query=q)
 
 
 @app.get("/api/folders/leaves", response_model=FolderLeavesResponse, tags=["Folders"])
